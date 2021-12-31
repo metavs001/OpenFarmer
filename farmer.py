@@ -448,64 +448,6 @@ class Farmer:
         self.log.info("get_barley: {0}".format(barley_list))
         return barley_list
 
-    # 获取鸡的信息
-    def get_chicken(self) -> List[Animal]:
-        post_data = self.table_row_template()
-        post_data["table"] = "animals"
-        post_data["index_position"] = 2
-
-        resp = self.http.post(self.url_table_row, json=post_data)
-        self.log.debug("get_chicken_info:{0}".format(resp.text))
-        resp = resp.json()
-        animals = []
-        for item in resp["rows"]:
-            if item["name"] != "Chicken":
-                continue
-            anim: Chicken = res.create_farming(item)
-            animals.append(anim)
-        return animals
-
-    # 喂鸡
-    def feed_chicken(self, asset_id_food: str, chicken: Chicken) -> bool:
-        self.log.info("feed [{0}] to [{1}]".format(asset_id_food, chicken.asset_id))
-        self.consume_energy(Decimal(chicken.energy_consumed))
-        transaction = {
-            "actions": [{
-                "account": "atomicassets",
-                "name": "transfer",
-                "authorization": [{
-                    "actor": self.wax_account,
-                    "permission": "active",
-                }],
-                "data": {
-                    "asset_ids": [asset_id_food],
-                    "from": self.wax_account,
-                    "memo": "feed_animal:{0}".format(chicken.asset_id),
-                    "to": "farmersworld"
-                },
-            }],
-        }
-        return self.wax_transact(transaction)
-
-    # 饲养鸡
-    def claim_chicken(self, animals: List[Animal]):
-        list_barley = self.get_barley()
-        self.log.info("剩余大麦数量: {0}".format(len(list_barley)))
-        for item in animals:
-            if len(list_barley) <= 0:
-                self.log.warning("大麦数量不足,请及时补充")
-                return False
-            barley = list_barley.pop()
-            self.log.info("正在喂鸡: {0}".format(item.show()))
-            success = self.feed_chicken(barley.asset_id, item)
-            if success:
-                self.log.info("喂鸡成功: {0}".format(item.show(more=False)))
-            else:
-                self.log.info("喂鸡失败: {0}".format(item.show(more=False)))
-                self.count_error_claim += 1
-            time.sleep(cfg.req_interval)
-        return True
-
     # 获取wax账户信息
     def wax_get_account(self):
         url = self.url_rpc + "get_account"
@@ -615,22 +557,6 @@ class Farmer:
         for item in crops:
             self.log.info(item.show())
         self.claim_crops(crops)
-        return True
-
-    def scan_animals(self):
-        self.log.info("检查农场")
-        animals = self.get_chicken()
-        self.log.info("饲养的动物:")
-        for item in animals:
-            self.log.info(item.show())
-        animals = self.filter_operable(animals)
-        if not animals:
-            self.log.info("没有可操作的动物")
-            return True
-        self.log.info("可操作的动物:")
-        for item in animals:
-            self.log.info(item.show())
-        self.claim_chicken(animals)
         return True
 
     def get_tools(self):
@@ -839,17 +765,8 @@ class Farmer:
             self.scan_resource()
             time.sleep(cfg.req_interval)
 
-            if user_param.mbs:
-                self.scan_mbs()
-                time.sleep(cfg.req_interval)
-            if user_param.build:
-                self.scan_buildings()
-                time.sleep(cfg.req_interval)
             if user_param.plant:
                 self.scan_crops()
-                time.sleep(cfg.req_interval)
-            if user_param.chicken:
-                self.scan_animals()
                 time.sleep(cfg.req_interval)
             if user_param.mining:
                 self.scan_mining()
