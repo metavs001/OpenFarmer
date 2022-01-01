@@ -36,6 +36,5 @@ def main():
         log.exception("start error")
     input()
 
-
 if __name__ == '__main__':
     main()
