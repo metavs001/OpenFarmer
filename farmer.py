@@ -42,7 +42,6 @@ class Farmer:
         self.password: str = None
         self.driver: webdriver.Chrome = None
         self.http: requests.Session = None
-        self.cookies: List[dict] = None
         self.next_operate_time: datetime = datetime.max
         self.next_scan_time: datetime = datetime.min
         self.resoure: Resoure = None
@@ -86,17 +85,6 @@ class Farmer:
         return True
 
     def start(self):
-        if self.cookies:
-            print("login with cookies")
-            cookies = self.cookies["cookies"]
-            key_cookie = {}
-            for item in cookies:
-                if item.get("domain") == "all-access.wax.io":
-                    key_cookie = item
-                    break
-            if not key_cookie:
-                raise CookieExpireException("not find cookie domain as all-access.wax.io")
-            ret = self.driver.execute_cdp_cmd("Network.setCookie", key_cookie)
         self.driver.get("https://play.farmersworld.io/")
         elem = self.driver.find_element(By.ID, "RPC-Endpoint")
         elem.find_element(By.XPATH, "option[contains(@name, 'https')]")
