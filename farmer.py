@@ -205,22 +205,6 @@ class Farmer:
             self.log.info("网络错误: {0}".format(exp))
             self.log.info("正在重试: [{0}]".format(state.attempt_number))
 
-    def table_row_template(self) -> dict:
-        post_data = {
-            "json": True,
-            "code": "farmersworld",
-            "scope": "farmersworld",
-            "table": None,  # 覆写
-            "lower_bound": self.wax_account,
-            "upper_bound": self.wax_account,
-            "index_position": None,  # 覆写
-            "key_type": "i64",
-            "limit": 100,
-            "reverse": False,
-            "show_payer": False
-        }
-        return post_data
-
     # 从服务器获取各种工具和作物的参数
     def init_farming_config(self):
         # 工具
@@ -256,55 +240,6 @@ class Farmer:
         self.log.debug("get mbs config:{0}".format(resp.text))
         resp = resp.json()
         res.init_mbs_config(resp["rows"])
-
-    # 获取wax账户信息
-    def wax_get_account(self):
-        url = self.url_rpc + "get_account"
-        post_data = {"account_name": self.wax_account}
-        resp = self.http.post(url, json=post_data)
-        self.log.debug("get_account:{0}".format(resp.text))
-        resp = resp.json()
-        return resp
-
-    # 签署交易(只许成功，否则抛异常）
-    def wax_transact(self, transaction: dict):
-        self.inject_waxjs()
-        self.log.info("begin transact: {0}".format(transaction))
-        try:
-            success, result = self.driver.execute_script("return window.wax_transact(arguments[0]);", transaction)
-            if success:
-                self.log.info("transact ok, transaction_id: [{0}]".format(result["transaction_id"]))
-                self.log.debug("transact result: {0}".format(result))
-                return True
-            else:
-                self.log.error("transact error: {0}".format(result))
-                if "is greater than the maximum billable" in result:
-                    self.log.error("EOS CPU资源不足，可能需要质押更多WAX，一般为误报，稍后重试")
-                    raise TransactException(result)
-                raise TransactException(result)
-        except WebDriverException as e:
-            self.log.error("transact error: {0}".format(e))
-            self.log.exception(str(e))
-            raise TransactException(result)
-
-    # 过滤可操作的作物
-    def filter_operable(self, items: List[Farming]) -> Farming:
-        now = datetime.now()
-        op = []
-        for item in items:
-            if isinstance(item, Building):
-                if item.is_ready == 1:
-                    continue
-            # 鸡24小时内最多喂4次
-            if isinstance(item, Chicken):
-                if len(item.day_claims_at) >= 4:
-                    next_op_time = item.day_claims_at[0] + timedelta(hours=24)
-                    item.next_availability = max(item.next_availability, next_op_time)
-            if now < item.next_availability:
-                self.not_operational.append(item)
-                continue
-            op.append(item)
-        return op
 
     def reset_before_scan(self):
         self.not_operational.clear()
