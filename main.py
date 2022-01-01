@@ -11,7 +11,9 @@ def run(config_file: str):
     load_user_param(user)
     farmer = Farmer()
     farmer.wax_account = user_param.wax_account
+    print("Starting initiation")
     farmer.init()
+    print("Initiation completed")
     farmer.start()
     print("start farming")
     return farmer.run_forever()

@@ -14,12 +14,12 @@ from decimal import Decimal
 from typing import List, Dict
 import base64
 from pprint import pprint
-import utils
-from utils import plat
 from settings import user_param
 from datetime import datetime, timedelta
 from settings import cfg
 import os
+from utils import plat
+
 
 class Status:
     Continue = 1
@@ -177,7 +177,6 @@ class Farmer:
             print("errors, will retry later")
             self.next_scan_time = datetime.now() + cfg.min_scan_interval
 
-        print("next scan time: {0}".format(utils.show_time(self.next_scan_time)))
         return status
 
     def run_forever(self):
