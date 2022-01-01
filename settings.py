@@ -6,42 +6,29 @@ class Settings:
     path_logs: str
     chrome_data_dir: str
     url_db: str = None
-    # 发送http请求的间隔
+    # interval for http requests
     req_interval = 3
-    # 每小时至少扫描一次，即使没有可用的作物，这样可以处理上次扫码后新种的作物
+    # scan at least 1 time in 1 hour
     max_scan_interval = timedelta(minutes=15)
-    # 每次扫描至少间隔10秒，哪怕是出错重扫
+    # scan intervals, even if errors
     min_scan_interval = timedelta(seconds = 10)
 
 
-# 用户配置参数
+# configuration by user
 class user_param:
     wax_account: str = None
-    use_proxy: bool = False
-    proxy: str = None
 
-    build: bool = True
     mining: bool = True
-    chicken: bool = True
     plant: bool = True
-    cow: bool = True
     mbs: bool = True
-    # 能量不够的时候，就去恢复那么多能量,但不超过最大能量
     recover_energy: int = 500
-
-    on_server: bool = False
 
     @staticmethod
     def to_dict():
         return {
             "wax_account": user_param.wax_account,
-            "use_proxy": user_param.use_proxy,
-            "proxy": user_param.proxy,
-            "build": user_param.build,
             "mining": user_param.mining,
-            "chicken": user_param.chicken,
             "plant": user_param.plant,
-            "cow": user_param.cow,
             "mbs": user_param.mbs,
             "recover_energy": user_param.recover_energy,
         }
@@ -49,13 +36,8 @@ class user_param:
 
 def load_user_param(user: dict):
     user_param.wax_account = user["wax_account"]
-    user_param.use_proxy = user.get("use_proxy", False)
-    user_param.proxy = user.get("proxy", None)
-    user_param.build = user.get("build", True)
     user_param.mining = user.get("mining", True)
-    user_param.chicken = user.get("chicken", True)
     user_param.plant = user.get("plant", True)
-    user_param.cow = user.get("cow", True)
     user_param.mbs = user.get("mbs", True)
     user_param.recover_energy = user.get("recover_energy", 500)
 

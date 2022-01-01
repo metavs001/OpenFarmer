@@ -1,6 +1,0 @@
-requests
-selenium
-pyyaml
-tenacity
-psutil-wheels
-pyqt6

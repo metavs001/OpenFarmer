@@ -1,10 +1,5 @@
 wax_account: mfwzw.wam
-use_proxy: false
-proxy: 127.0.0.1:10809
-build: false
 mining: true
-chicken: false
 plant: true
-cow: false
 mbs: false
 recover_energy: 500

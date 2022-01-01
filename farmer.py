@@ -7,7 +7,6 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import WebDriverException
 import tenacity
 from tenacity import stop_after_attempt, wait_fixed, retry_if_exception_type, RetryCallState
-import logging
 import requests
 from requests.exceptions import RequestException
 import functools
@@ -15,38 +14,12 @@ from decimal import Decimal
 from typing import List, Dict
 import base64
 from pprint import pprint
-import logger
 import utils
 from utils import plat
 from settings import user_param
-import res
-from res import Building, Resoure, Animal, Asset, Farming, Crop, NFT, Axe, Tool, Token, Chicken, FishingRod, MBS
 from datetime import datetime, timedelta
 from settings import cfg
 import os
-from logger import log
-
-class FarmerException(Exception):
-    pass
-
-
-class CookieExpireException(FarmerException):
-    pass
-
-
-# 调用智能合约出错，此时应停止并检查日志，不宜反复重试
-class TransactException(FarmerException):
-    # 有的智能合约错误可以重试,-1为无限重试
-    def __init__(self, msg, retry=True, max_retry_times: int = -1):
-        super().__init__(msg)
-        self.retry = retry
-        self.max_retry_times = max_retry_times
-
-
-# 遇到不可恢复的错误 ,终止程序
-class StopException(FarmerException):
-    pass
-
 
 class Status:
     Continue = 1
@@ -57,7 +30,7 @@ class Farmer:
     # wax rpc
     url_rpc = "https://api.wax.alohaeos.com/v1/chain/"
     url_table_row = url_rpc + "get_table_rows"
-    # 资产API
+    # asset API
     url_assets = "https://wax.api.atomicassets.io/atomicassets/v1/assets"
     waxjs: str = None
     myjs: str = None
@@ -68,63 +41,32 @@ class Farmer:
         self.login_name: str = None
         self.password: str = None
         self.driver: webdriver.Chrome = None
-        self.proxy: str = None
         self.http: requests.Session = None
         self.cookies: List[dict] = None
-        self.log: logging.LoggerAdapter = log
-        # 下一次可以操作东西的时间
         self.next_operate_time: datetime = datetime.max
-        # 下一次扫描时间
         self.next_scan_time: datetime = datetime.min
-        # 本轮扫描中暂不可操作的东西
-        self.not_operational: List[Farming] = []
-        # 智能合约连续出错次数
-        self.count_error_transact = 0
-        # 本轮扫描中作物操作成功个数
-        self.count_success_claim = 0
-        # 本轮扫描中作物操作失败个数
-        self.count_error_claim = 0
-        # 本轮开始时的资源数量
         self.resoure: Resoure = None
         self.token: Token = None
 
     def close(self):
         if self.driver:
-            self.log.info("稍等，程序正在退出")
             self.driver.quit()
 
     def init(self):
-        self.log.extra["tag"] = self.wax_account
         options = webdriver.ChromeOptions()
         options.add_argument("--disable-extensions")
         options.add_argument("--log-level=3")
         options.add_argument("--disable-logging")
         data_dir = os.path.join(Farmer.chrome_data_dir, self.wax_account)
         options.add_argument("--user-data-dir={0}".format(data_dir))
-        if self.proxy:
-            options.add_argument("--proxy-server={0}".format(self.proxy))
         self.driver = webdriver.Chrome(plat.driver_path, options=options)
         self.driver.implicitly_wait(60)
         self.driver.set_script_timeout(60)
         self.http = requests.Session()
         self.http.trust_env = False
         self.http.request = functools.partial(self.http.request, timeout=30)
-        if self.proxy:
-            self.http.proxies = {
-                "http": "http://{0}".format(self.proxy),
-                "https": "http://{0}".format(self.proxy),
-            }
-        http_retry_wrapper = tenacity.retry(wait=wait_fixed(cfg.req_interval), stop=stop_after_attempt(5),
-                                            retry=retry_if_exception_type(RequestException),
-                                            before_sleep=self.log_retry, reraise=True)
-        self.http.get = http_retry_wrapper(self.http.get)
-        self.http.post = http_retry_wrapper(self.http.post)
 
     def inject_waxjs(self):
-        # 如果已经注入过就不再注入了
-        if self.driver.execute_script("return window.mywax != undefined;"):
-            return True
-
         if not Farmer.waxjs:
             with open("waxjs.js", "r") as file:
                 Farmer.waxjs = file.read()
@@ -144,9 +86,8 @@ class Farmer:
         return True
 
     def start(self):
-        self.log.info("启动浏览器")
         if self.cookies:
-            self.log.info("使用预设的cookie自动登录")
+            print("login with cookies")
             cookies = self.cookies["cookies"]
             key_cookie = {}
             for item in cookies:
@@ -156,39 +97,29 @@ class Farmer:
             if not key_cookie:
                 raise CookieExpireException("not find cookie domain as all-access.wax.io")
             ret = self.driver.execute_cdp_cmd("Network.setCookie", key_cookie)
-            self.log.info("Network.setCookie: {0}".format(ret))
-            if not ret["success"]:
-                raise CookieExpireException("Network.setCookie error")
         self.driver.get("https://play.farmersworld.io/")
-        # 等待页面加载完毕
         elem = self.driver.find_element(By.ID, "RPC-Endpoint")
         elem.find_element(By.XPATH, "option[contains(@name, 'https')]")
         wait_seconds = 60
         if self.may_cache_login():
-            self.log.info("使用Cache自动登录")
+            print("Login with cach")
         else:
             wait_seconds = 600
-            self.log.info("请在弹出的窗口中手动登录账号")
-        # 点击登录按钮，点击WAX云钱包方式登录
+            print("Please login")
+        # find and click login-button
         elem = self.driver.find_element(By.CLASS_NAME, "login-button")
         elem.click()
         elem = self.driver.find_element(By.CLASS_NAME, "login-button--text")
         elem.click()
-        # 等待登录成功
-        self.log.info("等待登录")
         WebDriverWait(self.driver, wait_seconds, 1).until(
             EC.presence_of_element_located((By.XPATH, "//img[@class='navbar-group--icon' and @alt='Map']")))
-        # self.driver.find_element(By.XPATH, "//img[@class='navbar-group--icon' and @alt='Map']")
-        self.log.info("登录成功,稍等...")
+        print("Login successfully")
         time.sleep(cfg.req_interval)
         self.inject_waxjs()
         ret = self.driver.execute_script("return window.wax_login();")
-        self.log.info("window.wax_login(): {0}".format(ret))
-        if not ret[0]:
-            raise CookieExpireException("cookie失效")
 
-        # 从服务器获取游戏参数
-        self.log.info("正在加载游戏配置")
+        #get parameters
+        print("Loading parameters")
         self.init_farming_config()
         time.sleep(cfg.req_interval)
 
@@ -199,15 +130,9 @@ class Farmer:
                 return True
         return False
 
-    def log_retry(self, state: RetryCallState):
-        exp = state.outcome.exception()
-        if isinstance(exp, RequestException):
-            self.log.info("网络错误: {0}".format(exp))
-            self.log.info("正在重试: [{0}]".format(state.attempt_number))
-
-    # 从服务器获取各种工具和作物的参数
+    # get tools and plants parameters
     def init_farming_config(self):
-        # 工具
+        # tools
         post_data = {
             "json": True,
             "code": "farmersworld",
@@ -222,88 +147,37 @@ class Farmer:
             "show_payer": False
         }
         resp = self.http.post(self.url_table_row, json=post_data)
-        self.log.debug("get tools config:{0}".format(resp.text))
         resp = resp.json()
-        res.init_tool_config(resp["rows"])
         time.sleep(cfg.req_interval)
 
-        # 农作物
+        # plants
         post_data["table"] = "cropconf"
         resp = self.http.post(self.url_table_row, json=post_data)
-        self.log.debug("get crop config:{0}".format(resp.text))
         resp = resp.json()
-        res.init_crop_config(resp["rows"])
 
-        # 会员卡
+        # membership
         post_data["table"] = "mbsconf"
         resp = self.http.post(self.url_table_row, json=post_data)
-        self.log.debug("get mbs config:{0}".format(resp.text))
         resp = resp.json()
-        res.init_mbs_config(resp["rows"])
 
-    def reset_before_scan(self):
-        self.not_operational.clear()
-        self.count_success_claim = 0
-        self.count_error_claim = 0
-
-    # 检查正在培养的作物， 返回值：是否继续运行程序
+    # scan all functions
     def scan_all(self) -> int:
         status = Status.Continue
         try:
-            self.reset_before_scan()
-            self.log.info("开始一轮扫描")
+            print("Start new scan")
             time.sleep(cfg.req_interval)
 
-            self.log.info("结束一轮扫描")
-            if self.not_operational:
-                self.next_operate_time = min([item.next_availability for item in self.not_operational])
-                self.log.info("下一次可操作时间: {0}".format(utils.show_time(self.next_operate_time)))
-                # 可操作时间到了，也要延后5秒再扫，以免
-                self.next_operate_time += timedelta(seconds=5)
-            else:
-                self.next_operate_time = datetime.max
-            if self.count_success_claim > 0 or self.count_error_claim > 0:
-                self.log.info(f"本轮操作成功数量: {self.count_success_claim} 操作失败数量: {self.count_error_claim}")
-
-            if self.count_error_claim > 0:
-                self.log.info("本轮有失败操作，稍后重试")
-                self.next_scan_time = datetime.now() + cfg.min_scan_interval
-            else:
-                self.next_scan_time = datetime.now() + cfg.max_scan_interval
+            print("End scan")
+            self.next_operate_time = datetime.max
+            self.next_scan_time = datetime.now() + cfg.max_scan_interval
 
             self.next_scan_time = min(self.next_scan_time, self.next_operate_time)
 
-            # 没有合约出错，清空错误计数器
-            self.count_error_transact = 0
-
-        except TransactException as e:
-            self.log.exception("智能合约调用出错")
-            if not e.retry:
-                return Status.Stop
-            self.count_error_transact += 1
-            self.log.error("合约调用异常【{0}】次".format(self.count_error_transact))
-            if self.count_error_transact >= e.max_retry_times and e.max_retry_times != -1:
-                self.log.error("合约连续调用异常")
-                return Status.Stop
-            self.next_scan_time = datetime.now() + cfg.min_scan_interval
-        except CookieExpireException as e:
-            self.log.exception(str(e))
-            self.log.error("Cookie失效，请手动重启程序并重新登录")
-            return Status.Stop
-        except StopException as e:
-            self.log.exception(str(e))
-            self.log.error("不可恢复错误，请手动处理，然后重启程序并重新登录")
-            return Status.Stop
-        except FarmerException as e:
-            self.log.exception(str(e))
-            self.log.error("常规错误，稍后重试")
-            self.next_scan_time = datetime.now() + cfg.min_scan_interval
         except Exception as e:
-            self.log.exception(str(e))
-            self.log.error("常规错误，稍后重试")
+            print("errors, will retry later")
             self.next_scan_time = datetime.now() + cfg.min_scan_interval
 
-        self.log.info("下一轮扫描时间: {0}".format(utils.show_time(self.next_scan_time)))
+        print("next scan time: {0}".format(utils.show_time(self.next_scan_time)))
         return status
 
     def run_forever(self):
@@ -312,7 +186,6 @@ class Farmer:
                 status = self.scan_all()
                 if status == Status.Stop:
                     self.close()
-                    self.log.info("程序已停止，请检查日志后手动重启程序")
                     return 1
             time.sleep(1)
 
